@@ -1066,12 +1066,13 @@ static const Property genet_properties[] = {
 
 static void bcm2838_genet_class_init(ObjectClass *class, const void *data)
 {
+    static ResettablePhases unused_parent_phases;
     DeviceClass *dc = DEVICE_CLASS(class);
     ResettableClass *rc = RESETTABLE_CLASS(class);
 
     dc->realize = bcm2838_genet_realize;
     resettable_class_set_parent_phases(rc, NULL, bcm2838_genet_reset, NULL,
-                                       NULL);
+                                       &unused_parent_phases);
     device_class_set_props(dc, genet_properties);
 }
 
