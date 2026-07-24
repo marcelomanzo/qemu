@@ -509,7 +509,7 @@ static bool bcm2838_genet_tdma_ring_active(BCM2838GenetState *s,
     uint32_t ring_mask = 1 << ring_index;
     bool dma_en = FIELD_EX32(ctrl_reg, GENET_DMA_CTRL, EN) != 0;
     bool ring_en =
-        (FIELD_EX32(ring_cfg_reg, GENET_DMA_CTRL, EN) & ring_mask) != 0;
+        (FIELD_EX32(ring_cfg_reg, GENET_DMA_RING_CFG, EN) & ring_mask) != 0;
     bool ring_buf_en =
         (FIELD_EX32(ctrl_reg, GENET_DMA_CTRL, RING_BUF_EN) & ring_mask) != 0;
     bool active = dma_en && ring_en && ring_buf_en;
@@ -570,11 +570,6 @@ static void bcm2838_genet_tdma(BCM2838GenetState *s, hwaddr offset,
         ... BCM2838_GENET_TDMA_RINGS + sizeof(s->regs.tdma.rings) - 1:
         ring_index = (offset - BCM2838_GENET_TDMA_RINGS)
             / sizeof(BCM2838GenetTdmaRing);
-        if (!bcm2838_genet_tdma_ring_active(s, ring_index)) {
-            fprintf(stderr, "DBGPC: write to ring %u IGNORED, ring inactive "
-                    "(ctrl=0x%x ring_cfg=0x%x)\n", ring_index,
-                    s->regs.tdma.ctrl, s->regs.tdma.ring_cfg);
-        }
         if (bcm2838_genet_tdma_ring_active(s, ring_index)) {
             ring_offset = offset - BCM2838_GENET_TDMA_RINGS
                 - ring_index * sizeof(BCM2838GenetTdmaRing);
@@ -583,20 +578,12 @@ static void bcm2838_genet_tdma(BCM2838GenetState *s, hwaddr offset,
                 cons_index = s->regs.tdma.rings[ring_index].cons_index;
                 cons_index_fld = FIELD_EX32(cons_index,
                                             GENET_DMA_CONS_INDEX, INDEX);
-                if (cons_index_fld == prod_index_fld) {
-                    fprintf(stderr, "DBGPC: ring=%u prod==cons==%u "
-                            "(no-op write)\n", ring_index, prod_index_fld);
-                }
                 if (cons_index_fld != prod_index_fld) {
                     trace_bcm2838_genet_tx_request(ring_index,
                                                    prod_index_fld,
                                                    cons_index_fld);
                     num_descs_tx = bcm2838_genet_tx(s, ring_index, prod_index,
                                                     cons_index);
-                    fprintf(stderr, "DBGPC: ring=%u prod=%u cons_before=%u "
-                            "num_tx=%llu\n", ring_index, prod_index_fld,
-                            cons_index_fld,
-                            (unsigned long long)num_descs_tx);
                     if (num_descs_tx > 0) {
                         s->regs.tdma.rings[ring_index].cons_index =
                             FIELD_DP32(s->regs.tdma.rings[ring_index].cons_index,
@@ -828,12 +815,6 @@ static ssize_t bcm2838_genet_rdma(BCM2838GenetState *s, uint32_t ring_idx,
         MemTxResult mem_tx_result = MEMTX_OK;
         uint8_t *frame_buf = dma_buf + sizeof(BCM2838GenetXmitStatus) + 2;
         BCM2838GenetXmitStatus *xmit_status = (BCM2838GenetXmitStatus *)dma_buf;
-        struct iovec iov;
-        bool isip4, isip6;
-        size_t l3hdr_off, l4hdr_off, l5hdr_off;
-        eth_ip6_hdr_info ip6hdr_info;
-        eth_ip4_hdr_info ip4hdr_info;
-        eth_l4_hdr_info  l4hdr_info;
 
         bool crc_fwd = FIELD_EX32(s->regs.umac.cmd, GENET_UMAC_CMD, CRC_FWD);
         size_t buflength;
@@ -844,20 +825,6 @@ static ssize_t bcm2838_genet_rdma(BCM2838GenetState *s, uint32_t ring_idx,
         }
 
         memcpy(frame_buf, buf + len, l);
-        iov.iov_base = frame_buf;
-        iov.iov_len = l;
-        eth_get_protocols(&iov, 1, 0,
-                          &isip4, &isip6,
-                          &l3hdr_off, &l4hdr_off, &l5hdr_off,
-                          &ip6hdr_info, &ip4hdr_info, &l4hdr_info);
-
-        fprintf(stderr, "DBGRX: size=%zu l=%zu isip4=%d l3=%zu l4=%zu "
-                "ip4_sum=0x%x bytes:", size, l, isip4, l3hdr_off, l4hdr_off,
-                isip4 ? ip4hdr_info.ip4_hdr.ip_sum : 0);
-        for (int i = 0; i < 42 && i < (int)l; i++) {
-            fprintf(stderr, " %02x", frame_buf[i]);
-        }
-        fprintf(stderr, "\n");
 
         len += l;
 
