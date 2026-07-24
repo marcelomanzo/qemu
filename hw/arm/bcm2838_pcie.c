@@ -197,7 +197,7 @@ static const char *bcm2838_pcie_host_root_bus_path(PCIHostState *host_bridge,
     return "0000:00";
 }
 
-static void bcm2838_pcie_host_class_init(ObjectClass *class, void *data)
+static void bcm2838_pcie_host_class_init(ObjectClass *class, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(class);
     PCIHostBridgeClass *hc = PCI_HOST_BRIDGE_CLASS(class);
@@ -230,14 +230,14 @@ static const TypeInfo bcm2838_pcie_host_info = {
  * RC root part (D0:F0)
  */
 
-static void bcm2838_pcie_root_port_reset_hold(Object *obj)
+static void bcm2838_pcie_root_port_reset_hold(Object *obj, ResetType type)
 {
     PCIERootPortClass *rpc = PCIE_ROOT_PORT_GET_CLASS(obj);
     PCIDevice *dev = PCI_DEVICE(obj);
     BCM2838PcieRootState *s = BCM2838_PCIE_ROOT(dev);
 
     if (rpc->parent_phases.hold) {
-        rpc->parent_phases.hold(obj);
+        rpc->parent_phases.hold(obj, type);
     }
 
     memset(s->regs, 0xFF, sizeof(s->regs));
@@ -249,7 +249,7 @@ static void bcm2838_pcie_root_init(Object *obj)
     br->bus_name = "pcie.1";
 }
 
-static void bcm2838_pcie_root_class_init(ObjectClass *class, void *data)
+static void bcm2838_pcie_root_class_init(ObjectClass *class, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(class);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(class);

@@ -14,8 +14,9 @@
 #include "qapi/error.h"
 #include "hw/irq.h"
 #include "net/checksum.h"
-#include "sysemu/dma.h"
+#include "system/dma.h"
 #include "hw/registerfields.h"
+#include "hw/resettable.h"
 #include "hw/net/bcm2838_genet.h"
 #include "trace.h"
 
@@ -1042,9 +1043,9 @@ static void bcm2838_genet_phy_reset(BCM2838GenetState *s)
     bcm2838_genet_phy_update_link(s);
 }
 
-static void bcm2838_genet_reset(DeviceState *d)
+static void bcm2838_genet_reset(Object *obj, ResetType type)
 {
-    BCM2838GenetState *s = BCM2838_GENET(d);
+    BCM2838GenetState *s = BCM2838_GENET(obj);
 
     memset(&s->regs, 0x00, sizeof(s->regs));
 
@@ -1059,17 +1060,18 @@ static void bcm2838_genet_reset(DeviceState *d)
     bcm2838_genet_phy_reset(s);
 }
 
-static Property genet_properties[] = {
+static const Property genet_properties[] = {
     DEFINE_NIC_PROPERTIES(BCM2838GenetState, nic_conf),
-    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void bcm2838_genet_class_init(ObjectClass *class, void *data)
+static void bcm2838_genet_class_init(ObjectClass *class, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(class);
+    ResettableClass *rc = RESETTABLE_CLASS(class);
 
     dc->realize = bcm2838_genet_realize;
-    dc->reset = bcm2838_genet_reset;
+    resettable_class_set_parent_phases(rc, NULL, bcm2838_genet_reset, NULL,
+                                       NULL);
     device_class_set_props(dc, genet_properties);
 }
 
