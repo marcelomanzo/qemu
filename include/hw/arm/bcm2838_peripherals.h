@@ -74,6 +74,7 @@ struct BCM2838PeripheralState {
     Bcm2838ThermalState thermal;
     SDHCIState emmc2;
     BCM2838PcieHostState pcie_host;
+    MemoryRegion pcie_mmio_alias;
     BCM2838GenetState genet;
     BCM2838GpioState gpio;
 

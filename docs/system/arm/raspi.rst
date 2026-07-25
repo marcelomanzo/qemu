@@ -43,3 +43,5 @@ Missing devices
 ---------------
 
  * Pulse Width Modulation (PWM)
+ * PCIe MSI/MSI-X interrupt delivery (raspi4b) -- INTx works; a PCIe
+   device that only signals via MSI/MSI-X needs ``msi=off,msix=off``

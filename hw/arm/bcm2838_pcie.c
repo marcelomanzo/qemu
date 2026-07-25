@@ -11,23 +11,12 @@
 #include "qapi/error.h"
 #include "hw/core/irq.h"
 #include "hw/pci-host/gpex.h"
+#include "hw/pci/pci_host.h"
 #include "hw/core/qdev-properties.h"
 #include "migration/vmstate.h"
 #include "qemu/module.h"
 #include "hw/arm/bcm2838_pcie.h"
 #include "trace.h"
-
-static uint32_t bcm2838_pcie_config_read(PCIDevice *d,
-                                         uint32_t address, int len)
-{
-    return pci_default_read_config(d, address, len);
-}
-
-static void bcm2838_pcie_config_write(PCIDevice *d, uint32_t addr, uint32_t val,
-                                      int len)
-{
-    return pci_default_write_config(d, addr, val, len);
-}
 
 static uint64_t bcm2838_pcie_host_read(void *opaque, hwaddr offset,
                                        unsigned size) {
@@ -39,7 +28,18 @@ static uint64_t bcm2838_pcie_host_read(void *opaque, hwaddr offset,
     uint32_t *cfg_idx = (uint32_t *)(root_regs + BCM2838_PCIE_EXT_CFG_INDEX
                                      - PCIE_CONFIG_SPACE_SIZE);
 
-    if (offset - PCIE_CONFIG_SPACE_SIZE + size <= sizeof(s->root_port.regs)) {
+    if (offset < PCIE_CONFIG_SPACE_SIZE) {
+        /*
+         * The first 4KB of the window is the root port's own PCI config
+         * space (vendor/device ID, BARs, capabilities). Serve it from the
+         * real PCIDevice, not from the raw regs[] shadow buffer, which is
+         * only backing store for the controller registers above 4KB.
+         */
+        value = pci_host_config_read_common(PCI_DEVICE(&s->root_port),
+                                            offset, PCIE_CONFIG_SPACE_SIZE,
+                                            size);
+    } else if (offset - PCIE_CONFIG_SPACE_SIZE + size
+               <= sizeof(s->root_port.regs)) {
         switch (offset) {
         case BCM2838_PCIE_EXT_CFG_DATA
             ... BCM2838_PCIE_EXT_CFG_DATA + PCIE_CONFIG_SPACE_SIZE - 1:
@@ -72,7 +72,12 @@ static void bcm2838_pcie_host_write(void *opaque, hwaddr offset,
 
     trace_bcm2838_pcie_host_write(size, offset, value);
 
-    if (offset - PCIE_CONFIG_SPACE_SIZE + size <= sizeof(s->root_port.regs)) {
+    if (offset < PCIE_CONFIG_SPACE_SIZE) {
+        /* Root port's own PCI config space -- see read path above */
+        pci_host_config_write_common(PCI_DEVICE(&s->root_port), offset,
+                                     PCIE_CONFIG_SPACE_SIZE, value, size);
+    } else if (offset - PCIE_CONFIG_SPACE_SIZE + size
+               <= sizeof(s->root_port.regs)) {
         switch (offset) {
         case BCM2838_PCIE_EXT_CFG_DATA
             ... BCM2838_PCIE_EXT_CFG_DATA + PCIE_CONFIG_SPACE_SIZE - 1:
@@ -137,8 +142,17 @@ static void bcm2838_pcie_host_realize(DeviceState *dev, Error **errp)
     PCIHostState *pci = PCI_HOST_BRIDGE(dev);
     BCM2838PcieHostState *s = BCM2838_PCIE_HOST(dev);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
+    PCIExpressHost *pex = PCIE_HOST_BRIDGE(dev);
 
     int i;
+
+    /*
+     * Initialise the ECAM config-space window. The BCM2838 does not expose
+     * it to the guest directly; config accesses are made indirectly through
+     * the EXT_CFG_INDEX/EXT_CFG_DATA register pair, which dispatch into
+     * pex->mmio. Without this the ops pointer is never set up.
+     */
+    pcie_host_mmcfg_init(pex, PCIE_MMCFG_SIZE_MAX);
 
     memory_region_init_io(&s->cfg_regs, OBJECT(s), &bcm2838_pcie_host_ops, s,
                           "bcm2838_pcie_cfg_regs", BCM2838_PCIE_REGS_SIZE);
@@ -272,9 +286,6 @@ static void bcm2838_pcie_root_class_init(ObjectClass *class, const void *data)
     k->vendor_id = BCM2838_PCIE_VENDOR_ID;
     k->device_id = BCM2838_PCIE_DEVICE_ID;
     k->revision = BCM2838_PCIE_REVISION;
-
-    k->config_read = bcm2838_pcie_config_read;
-    k->config_write = bcm2838_pcie_config_write;
 
     rpc->exp_offset = BCM2838_PCIE_EXP_CAP_OFFSET;
     rpc->aer_offset = BCM2838_PCIE_AER_CAP_OFFSET;

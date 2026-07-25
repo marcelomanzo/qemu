@@ -232,10 +232,22 @@ static void bcm2838_peripherals_realize(DeviceState *dev, Error **errp)
     /* RC registers region */
     regs_mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->pcie_host), 0);
     memory_region_add_subregion(&s->peri_low_mr, PCIE_RC_OFFSET, regs_mr);
-    /* MMIO region */
+    /*
+     * MMIO region.
+     *
+     * The BCM2711 PCIe controller translates addresses between the ARM and
+     * PCI address spaces: the DTB declares CPU 0x600000000 as mapping to PCI
+     * 0xc0000000. Map an alias of the PCI window starting at that PCI offset
+     * so accesses land on the right addresses; mapping the window directly
+     * would expose PCI address 0 at the ARM base instead, and every BAR
+     * behind the root port would be read at the wrong address.
+     */
     mmio_mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->pcie_host), 1);
+    memory_region_init_alias(&s->pcie_mmio_alias, OBJECT(s),
+                             "bcm2838_pcie_mmio_alias", mmio_mr,
+                             PCIE_MMIO_OFFSET, PCIE_MMIO_SIZE);
     memory_region_add_subregion(get_system_memory(), PCIE_MMIO_ARM_OFFSET,
-                                mmio_mr);
+                                &s->pcie_mmio_alias);
 
     /* Gigabit Ethernet */
     if (!sysbus_realize(SYS_BUS_DEVICE(&s->genet), errp)) {
