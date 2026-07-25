@@ -132,6 +132,8 @@ FIELD(GENET_DMA_STATUS, DISABLED,           0, 1)
 FIELD(GENET_DMA_STATUS, DESC_RAM_INIT_BUSY, 1, 1)
 FIELD(GENET_DMA_STATUS, RSVD_2_31,          2, 30)
 
+#define GENET_DMA_ENABLE_MASK ((1U << 18) - 1)
+
 REG32(GENET_RDMA_LENGTH_STATUS,             0)
 FIELD(GENET_RDMA_LENGTH_STATUS, OVERRUN,    0, 1)
 FIELD(GENET_RDMA_LENGTH_STATUS, CRC_ERROR,  1, 1)
@@ -622,10 +624,8 @@ static void bcm2838_genet_tdma(BCM2838GenetState *s, hwaddr offset,
         }
         break;
     case BCM2838_GENET_TDMA_CTRL:
+        s->regs.tdma.status = (~dma_ctrl) & GENET_DMA_ENABLE_MASK;
         if (exst_tdma_en != incm_tdma_en) {
-            s->regs.tdma.status = FIELD_DP32(s->regs.tdma.status,
-                                             GENET_DMA_STATUS,
-                                             DISABLED, !exst_tdma_en);
             trace_bcm2838_genet_tx_dma(incm_tdma_en == 1
                                        ? "enabled"
                                        : "disabled");
@@ -727,6 +727,9 @@ static void bcm2838_genet_write(void *opaque, hwaddr offset, uint64_t value,
             s->regs.intrl0.stat = FIELD_DP32(s->regs.intrl0.stat,
                                              GENET_INTRL_0, MDIO_DONE, 1);
             break;
+        case BCM2838_GENET_RDMA_CTRL:
+            s->regs.rdma.status = (~value) & GENET_DMA_ENABLE_MASK;
+            break;
         case BCM2838_GENET_TDMA_REGS
             ... BCM2838_GENET_TDMA_REGS + sizeof(BCM2838GenetRegsTdma) - 1:
             bcm2838_genet_tdma(s, offset, value);
@@ -736,6 +739,10 @@ static void bcm2838_genet_write(void *opaque, hwaddr offset, uint64_t value,
         }
 
         memcpy((uint8_t *)&s->regs + offset, &value, size);
+        if (offset == BCM2838_GENET_RDMA_CTRL &&
+            FIELD_EX32(value, GENET_DMA_CTRL, EN)) {
+            qemu_flush_queued_packets(ncs);
+        }
         bcm2838_genet_set_irq_default(s);
         bcm2838_genet_set_irq_prio(s);
     } else {
@@ -927,6 +934,15 @@ static ssize_t bcm2838_genet_receive(NetClientState *nc, const uint8_t *buf,
             ring_index = bcm2838_genet_filter2ring(s, filter_index);
         } else {
             ring_index = BCM2838_GENET_DMA_RING_CNT - 1;
+            if (!bcm2838_genet_rdma_ring_active(s, ring_index)) {
+                for (ring_index = 0;
+                     ring_index < BCM2838_GENET_DMA_RING_CNT - 1;
+                     ring_index++) {
+                    if (bcm2838_genet_rdma_ring_active(s, ring_index)) {
+                        break;
+                    }
+                }
+            }
         }
 
         if (size <= MAX_PACKET_SIZE) {
@@ -1063,6 +1079,8 @@ static void bcm2838_genet_reset(Object *obj, ResetType type)
                                       MAJOR_REV, BCM2838_GENET_REV_MAJOR);
     s->regs.sys.rev_ctrl = FIELD_DP32(s->regs.sys.rev_ctrl, GENET_SYS_REV_CTRL,
                                       MINOR_REV, BCM2838_GENET_REV_MINOR);
+    s->regs.rdma.status = GENET_DMA_ENABLE_MASK;
+    s->regs.tdma.status = GENET_DMA_ENABLE_MASK;
 
     trace_bcm2838_genet_reset("done");
 
