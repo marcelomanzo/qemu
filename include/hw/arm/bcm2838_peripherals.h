@@ -11,6 +11,7 @@
 
 #include "hw/arm/bcm2835_peripherals.h"
 #include "hw/misc/bcm2838_rng200.h"
+#include "hw/misc/bcm2838_thermal.h"
 #include "hw/arm/bcm2838_pcie.h"
 #include "hw/net/bcm2838_genet.h"
 #include "hw/sd/sdhci.h"
@@ -70,6 +71,7 @@ struct BCM2838PeripheralState {
     MemoryRegion mphi_mr_alias;
 
     BCM2838Rng200State rng200;
+    Bcm2838ThermalState thermal;
     SDHCIState emmc2;
     BCM2838PcieHostState pcie_host;
     BCM2838GenetState genet;
