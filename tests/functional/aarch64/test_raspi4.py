@@ -154,5 +154,42 @@ class Aarch64Raspi4Machine(LinuxKernelTest):
         exec_command_and_wait_for_pattern(self, 'halt', 'reboot: System halted')
 
 
+    def test_arm_raspi4_pcie(self):
+        kernel_path = self.archive_extract(self.ASSET_KERNEL_20190215,
+                                           member='boot/kernel8.img')
+        dtb_path = self.archive_extract(self.ASSET_KERNEL_20190215,
+                                        member='boot/bcm2711-rpi-4-b.dtb')
+        initrd_path = self.uncompress(self.ASSET_INITRD)
+
+        self.set_machine('raspi4b')
+        self.vm.set_console()
+        kernel_command_line = (self.KERNEL_COMMON_COMMAND_LINE +
+                               'earlycon=pl011,mmio32,0xfe201000 ' +
+                               'console=ttyAMA0,115200 ' +
+                               'panic=-1 noreboot ' +
+                               'dwc_otg.fiq_fsm_enable=0')
+        self.vm.add_args('-kernel', kernel_path,
+                         '-dtb', dtb_path,
+                         '-initrd', initrd_path,
+                         '-append', kernel_command_line,
+                         '-no-reboot',
+                         # msi=off,msix=off: the BCM2838 PCIe root complex's
+                         # MSI controller is not implemented, so a device
+                         # relying on MSI/MSI-X for interrupts never signals
+                         # and its driver never probes. INTx works.
+                         '-device',
+                         'qemu-xhci,bus=pcie.1,id=xhci,msi=off,msix=off')
+        self.vm.launch()
+        self.wait_for_console_pattern(
+            'xhci_hcd 0000:01:00.0: xHCI Host Controller')
+        self.wait_for_console_pattern('Boot successful.')
+
+        exec_command_and_wait_for_pattern(self, 'ls /sys/bus/pci/devices/',
+                                                '0000:00:00.0')
+        exec_command_and_wait_for_pattern(self, 'ls /sys/bus/pci/devices/',
+                                                '0000:01:00.0')
+        exec_command_and_wait_for_pattern(self, 'halt', 'reboot: System halted')
+
+
 if __name__ == '__main__':
     LinuxKernelTest.main()
