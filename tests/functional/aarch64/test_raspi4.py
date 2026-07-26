@@ -154,6 +154,57 @@ class Aarch64Raspi4Machine(LinuxKernelTest):
         exec_command_and_wait_for_pattern(self, 'halt', 'reboot: System halted')
 
 
+    def test_arm_raspi4_full_ram(self):
+        kernel_path = self.archive_extract(self.ASSET_KERNEL_20190215,
+                                           member='boot/kernel8.img')
+        dtb_path = self.archive_extract(self.ASSET_KERNEL_20190215,
+                                        member='boot/bcm2711-rpi-4-b.dtb')
+        initrd_path = self.uncompress(self.ASSET_INITRD)
+
+        self.set_machine('raspi4b')
+        self.vm.set_console()
+        kernel_command_line = (self.KERNEL_COMMON_COMMAND_LINE +
+                               'earlycon=pl011,mmio32,0xfe201000 ' +
+                               'console=ttyAMA0,115200 ' +
+                               'panic=-1 noreboot ' +
+                               'dwc_otg.fiq_fsm_enable=0')
+        self.vm.add_args('-kernel', kernel_path,
+                         '-dtb', dtb_path,
+                         '-initrd', initrd_path,
+                         '-append', kernel_command_line,
+                         '-no-reboot')
+        self.vm.launch()
+        self.wait_for_console_pattern('Boot successful.')
+
+        # raspi4b's default machine RAM is 2 GiB, but raspi4_modify_dtb()
+        # used to compare the wrong field when deciding whether to add a
+        # second memory node above the 1 GiB peripheral hole (it checked
+        # the boot-loader's kernel/initrd-loading RAM budget, which is
+        # itself always capped to at most 1 GiB, rather than the board's
+        # actual total RAM) -- so that second node was never added for any
+        # raspi4b configuration, and the guest never saw more than ~1 GiB
+        # regardless of the machine's nominal RAM size. With the bug,
+        # MemTotal here is 943524 kB; fixed, it is 1905824 kB. Guard
+        # against a regression back to the ~1 GiB figure without hardcoding
+        # the exact byte count of either, which depends on how this
+        # specific pinned kernel accounts for its own reservations.
+        mem_total_kb = None
+        cmd_output = exec_command_and_wait_for_pattern(
+            self, 'cat /proc/meminfo', 'MemAvailable')
+        for line in cmd_output.decode('ascii', errors='replace').splitlines():
+            if line.startswith('MemTotal:'):
+                mem_total_kb = int(line.split()[1])
+                break
+        self.assertIsNotNone(mem_total_kb, 'MemTotal line not found')
+        self.assertGreater(mem_total_kb, 1900000,
+                           'guest RAM (%d kB) is far below the ~1.9 GiB '
+                           'expected for a 2 GiB raspi4b -- the second '
+                           'memory node above the 1 GiB peripheral hole '
+                           'is probably not being added' % mem_total_kb)
+
+        exec_command_and_wait_for_pattern(self, 'halt', 'reboot: System halted')
+
+
     def test_arm_raspi4_pcie(self):
         kernel_path = self.archive_extract(self.ASSET_KERNEL_20190215,
                                            member='boot/kernel8.img')
