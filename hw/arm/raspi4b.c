@@ -64,7 +64,19 @@ static void raspi4_modify_dtb(const struct arm_boot_info *info, void *fdt)
 
     ram_size = board_ram_size(info->board_id);
 
-    if (info->ram_size > UPPER_RAM_BASE) {
+    /*
+     * Bug: this used to compare info->ram_size (the boot-loader's RAM
+     * budget for loading the kernel/initrd/dtb, itself capped to at most
+     * UPPER_RAM_BASE - vcram_size by raspi_base_machine_init()) rather
+     * than the board's actual total RAM computed just above. Since that
+     * capped value can never exceed UPPER_RAM_BASE by construction, this
+     * condition was never true for any raspi4b configuration -- the
+     * second memory node was never added, and the guest never saw more
+     * than ~1 GiB regardless of the machine's nominal RAM size. Confirmed
+     * via direct measurement: default -m 2G returns ~916 MiB from
+     * "free -h" inside the guest, not 2 GiB.
+     */
+    if (ram_size > UPPER_RAM_BASE) {
         raspi_add_memory_node(fdt, UPPER_RAM_BASE, ram_size - UPPER_RAM_BASE);
     }
 }
